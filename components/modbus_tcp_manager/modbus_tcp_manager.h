@@ -343,7 +343,7 @@ private:
                         }
                         connection_check_state_ = ConnectionCheckState::CLEANUP;
                     }
-                } else if (now - connection_check_start_time_ > 2000) { // earvdl: changed from > 500 into > 2000
+                } else if (now - connection_check_start_time_ > 500) { // earvdl: changed from > 500 into > 2000, changed back to 500, after adviose of CoPilot
                     // Timeout after 500ms
                     ESP_LOGV(TAG, "Connection check timeout");
                     connection_check_success_ = false;
@@ -391,23 +391,53 @@ private:
         watchdog_counter_++;
         bool write_success = write_register(watchdog_register_, watchdog_counter_);
         
+        // if (write_success) {
+        //     // delay(100); // earvdl: removed, because CoPilot said: 3. Make watchdog non-blocking - Avoid the 100ms delay:
+        //     ModbusResponse response = read_register(watchdog_register_);
+            
+        //     if (response.success && !response.data.empty()) {
+        //         uint16_t read_value = response.data[0];
+                
+        //         if (read_value != watchdog_counter_) {
+        //             ESP_LOGD(TAG, "Watchdog OK: wrote %d, read %d", watchdog_counter_, read_value);
+        //             watchdog_counter_ = read_value;
+                    
+        //             if (safe_mode_active_) {
+        //                 ESP_LOGI(TAG, "Watchdog restored, deactivating safe mode");
+        //                 safe_mode_active_ = false;
+        //             }
+        //         } else {
+        //             ESP_LOGW(TAG, "Watchdog failed: remote device not responding");
+        //             activate_safe_mode();
+        //         }
+        //     } else {
+        //         ESP_LOGW(TAG, "Watchdog read failed");
+        //         activate_safe_mode();
+        //     }
+        // } else {
+        //     ESP_LOGW(TAG, "Watchdog write failed");
+        //     activate_safe_mode();
+        // }
+
+        // new code suggested by CoPilot
         if (write_success) {
-            // delay(100); // earvdl: removed, because CoPilot said: 3. Make watchdog non-blocking - Avoid the 100ms delay:
+            // Read it back immediately (removed delay(100))
             ModbusResponse response = read_register(watchdog_register_);
             
             if (response.success && !response.data.empty()) {
                 uint16_t read_value = response.data[0];
                 
-                if (read_value != watchdog_counter_) {
-                    ESP_LOGD(TAG, "Watchdog OK: wrote %d, read %d", watchdog_counter_, read_value);
-                    watchdog_counter_ = read_value;
+                // FIXED: Values matching = device alive and responding
+                if (read_value == watchdog_counter_) {
+                    ESP_LOGD(TAG, "Watchdog OK: wrote %d, read %d - device responding", watchdog_counter_, read_value);
                     
                     if (safe_mode_active_) {
                         ESP_LOGI(TAG, "Watchdog restored, deactivating safe mode");
                         safe_mode_active_ = false;
                     }
                 } else {
-                    ESP_LOGW(TAG, "Watchdog failed: remote device not responding");
+                    // Values don't match = device not responding correctly
+                    ESP_LOGW(TAG, "Watchdog failed: remote device not responding (wrote %d, read %d)", watchdog_counter_, read_value);
                     activate_safe_mode();
                 }
             } else {
@@ -417,7 +447,7 @@ private:
         } else {
             ESP_LOGW(TAG, "Watchdog write failed");
             activate_safe_mode();
-        }
+        }        
     }
     
     void activate_safe_mode() {
