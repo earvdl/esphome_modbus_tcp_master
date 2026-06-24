@@ -207,7 +207,7 @@ class ModbusTCPManager : public Component {
         e.count == count) {
       const uint32_t age_ms = now - e.ts_ms;
       if (age_ms <= ttl_ms) {
-        ESP_LOGD(TAG,
+        ESP_LOGW(TAG,
                  "CACHE HIT exact fc=%u start=0x%04X count=%u age=%ums ttl=%ums slot=%u",
                  static_cast<unsigned>(function_code),
                  static_cast<unsigned>(start_reg),
@@ -217,7 +217,7 @@ class ModbusTCPManager : public Component {
                  static_cast<unsigned>(i));
         return e.response;
       } else {
-        ESP_LOGV(TAG,
+        ESP_LOGW(TAG,
                  "CACHE STALE exact fc=%u start=0x%04X count=%u age=%ums ttl=%ums slot=%u",
                  static_cast<unsigned>(function_code),
                  static_cast<unsigned>(start_reg),
@@ -256,7 +256,7 @@ class ModbusTCPManager : public Component {
         out.data.assign(e.response.data.begin() + byte_offset,
                         e.response.data.begin() + byte_offset + need_bytes);
 
-        ESP_LOGD(TAG,
+        ESP_LOGW(TAG,
                  "CACHE HIT range fc=%u req=0x%04X/%u from block=0x%04X/%u age=%ums ttl=%ums slot=%u",
                  static_cast<unsigned>(function_code),
                  static_cast<unsigned>(start_reg),
@@ -282,7 +282,7 @@ class ModbusTCPManager : public Component {
   }
 
   // 3) Miss -> real read
-  ESP_LOGV(TAG, "CACHE MISS fc=%u start=0x%04X count=%u",
+  ESP_LOGW(TAG, "CACHE MISS fc=%u start=0x%04X count=%u",
            static_cast<unsigned>(function_code),
            static_cast<unsigned>(start_reg),
            static_cast<unsigned>(count));
