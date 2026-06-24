@@ -91,7 +91,7 @@ class ModbusTCPManager : public Component {
   void loop() override {
     uint32_t now = millis();
 
-    if (now - last_connection_attempt_ > 5000) {
+    if (now - last_connection_attempt_ > 15000) {
       last_connection_attempt_ = now;
       start_connection_check();
     }
@@ -144,7 +144,26 @@ class ModbusTCPManager : public Component {
       return response;
     }
 
+    // std::vector<uint8_t> resp_data = receive_modbus_frame(sock);
+    // if (resp_data.empty()) {
+    //   response.error_message = "Receive failed";
+    //   is_connected_ = false;
+    //   return response;
+    // }
+
     std::vector<uint8_t> resp_data = receive_modbus_frame(sock);
+    if (resp_data.empty()) {
+      // One retry using a fresh socket (helps with transient Wi-Fi/TCP hiccups)
+      reset_persistent_socket(sock);
+    
+      int retry_sock = create_connection();
+      if (retry_sock >= 0) {
+        if (send_data(retry_sock, request)) {
+          resp_data = receive_modbus_frame(retry_sock);
+        }
+      }
+    }
+
     if (resp_data.empty()) {
       response.error_message = "Receive failed";
       is_connected_ = false;
@@ -417,7 +436,7 @@ class ModbusTCPManager : public Component {
     int sock = ::socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return -1;
 
-    struct timeval timeout{0, 150000};
+    struct timeval timeout{0, 350000};
     ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     ::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
@@ -443,7 +462,7 @@ class ModbusTCPManager : public Component {
       FD_ZERO(&write_fds);
       FD_SET(sock, &write_fds);
 
-      struct timeval connect_timeout{0, 150000};
+      struct timeval connect_timeout{0, 350000};
       int select_result = ::select(sock + 1, nullptr, &write_fds, nullptr, &connect_timeout);
       if (select_result <= 0) {
         ::close(sock);
