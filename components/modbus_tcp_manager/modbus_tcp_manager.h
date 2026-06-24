@@ -35,7 +35,7 @@ enum class ModbusFunction : uint8_t {
   WRITE_MULTIPLE_REGISTERS = 0x10
 };
 
-enum class ModbusValueType : uint8_t {
+enum ModbusValueType : uint8_t {
   U16,
   S16,
   U32_BE,  // reg N high, reg N+1 low
