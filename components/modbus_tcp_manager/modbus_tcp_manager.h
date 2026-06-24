@@ -173,6 +173,7 @@ class ModbusTCPManager : public Component {
     if (resp_data.empty()) {
       response.error_message = "Receive failed";
       is_connected_ = false;
+      invalidate_register_cache();
       return response;
     }
 
@@ -186,6 +187,44 @@ class ModbusTCPManager : public Component {
     response.success = true;
     return response;
   }
+  //--------------------------------------------
+  // added for modbus cache management
+
+  void ModbusTCPManager::invalidate_register_cache() {
+    for (size_t i = 0; i < CACHE_SIZE; i++) reg_cache_[i].valid = false;
+  }
+  
+  ModbusResponse ModbusTCPManager::read_registers_cached(uint16_t start_reg, uint16_t count, uint8_t function_code, uint32_t ttl_ms) {
+    const uint32_t now = millis();
+  
+    // Exact cache hit
+    for (size_t i = 0; i < CACHE_SIZE; i++) {
+      auto &e = reg_cache_[i];
+      if (!e.valid) continue;
+      if (e.function_code == function_code && e.start_reg == start_reg && e.count == count) {
+        if ((now - e.ts_ms) <= ttl_ms) {
+          return e.response;
+        }
+      }
+    }
+  
+    // Miss -> real read
+    ModbusResponse resp = this->read_registers(start_reg, count, function_code);
+  
+    // Store/overwrite round-robin
+    auto &slot = reg_cache_[reg_cache_next_];
+    slot.valid = true;
+    slot.function_code = function_code;
+    slot.start_reg = start_reg;
+    slot.count = count;
+    slot.ts_ms = now;
+    slot.response = resp;
+  
+    reg_cache_next_ = (reg_cache_next_ + 1) % CACHE_SIZE;
+    return resp;
+  }
+
+  //--------------------------------------------
 
   bool write_register(uint16_t address, int16_t value) {
     ESP_LOGD(TAG, "Writing value %d to register %d", value, address);
@@ -266,6 +305,23 @@ class ModbusTCPManager : public Component {
   uint32_t last_watchdog_time_;
   uint16_t watchdog_counter_;
   bool safe_mode_active_;
+
+  //--------------------------------------------
+  // type and field for modbus read caching
+  struct RegisterCacheEntry {
+    bool valid{false};
+    uint8_t function_code{0};
+    uint16_t start_reg{0};
+    uint16_t count{0};
+    uint32_t ts_ms{0};
+    ModbusResponse response;
+  };
+  
+  static constexpr size_t CACHE_SIZE = 8;
+  RegisterCacheEntry reg_cache_[CACHE_SIZE];
+  size_t reg_cache_next_{0};
+
+  //--------------------------------------------
 
   enum class ConnectionCheckState { IDLE, CONNECTING, CLEANUP };
   ConnectionCheckState connection_check_state_;
@@ -359,12 +415,14 @@ class ModbusTCPManager : public Component {
             ESP_LOGI(TAG, "Modbus connection restored to %s:%d", host_.c_str(), port_);
             is_connected_ = true;
             last_reconnect_ms_ = millis();
+            invalidate_register_cache();
           }
          
         } else {
           if (is_connected_) {
             ESP_LOGW(TAG, "Modbus connection lost to %s:%d", host_.c_str(), port_);
             is_connected_ = false;
+            invalidate_register_cache();
             if (persistent_sock_ >= 0) {
               ::close(persistent_sock_);
               persistent_sock_ = -1;
@@ -425,6 +483,7 @@ class ModbusTCPManager : public Component {
   void reset_persistent_socket(int sock) {
     if (persistent_sock_ == sock && persistent_sock_ >= 0) {
       ::close(persistent_sock_);
+      invalidate_register_cache();
       persistent_sock_ = -1;
     }
   }
@@ -747,7 +806,7 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
                                    ? 2
                                    : 1;
 
-    ModbusResponse response = parent_->read_registers(register_address_, reg_count, func);
+    ModbusResponse response = parent_->auto response = parent_->read_registers_cached(register_address_, reg_count, function_code_, 200);
     if (!response.success) {
       ESP_LOGW(TAG, "Failed to read register %d (count=%d): %s", register_address_, reg_count,
                response.error_message.c_str());
