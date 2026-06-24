@@ -59,7 +59,7 @@ async def to_code(config):
 
     await cg.register_component(var, config)
     await sensor.register_sensor(var, config)
-------
+# ------
 # import esphome.codegen as cg
 # import esphome.config_validation as cv
 # from esphome.components import sensor
