@@ -13,7 +13,7 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include "lwip/inet.h"
-#include <errno.h>tiem
+#include <errno.h>
 #include <fcntl.h>
 #include <sys/select.h>
 #endif
