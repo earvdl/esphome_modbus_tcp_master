@@ -806,7 +806,7 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
                                    ? 2
                                    : 1;
 
-    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, static_cast<ModbusFunction>(function_code_), 200);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, static_cast<ModbusFunction>(function_code_), 3000);
     if (!response.success) {
       ESP_LOGW(TAG, "Failed to read register %d (count=%d): %s", register_address_, reg_count,
                response.error_message.c_str());
