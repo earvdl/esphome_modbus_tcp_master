@@ -310,7 +310,7 @@ class ModbusTCPManager : public Component {
   // type and field for modbus read caching
   struct RegisterCacheEntry {
     bool valid{false};
-    uint8_t function_code{0};
+    ModbusFunction function_code{ModbusFunction::READ_HOLDING_REGISTERS};
     uint16_t start_reg{0};
     uint16_t count{0};
     uint32_t ts_ms{0};
@@ -806,7 +806,7 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
                                    ? 2
                                    : 1;
 
-    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, function_code_, 200);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, static_cast<ModbusFunction>(function_code_), 200);
     if (!response.success) {
       ESP_LOGW(TAG, "Failed to read register %d (count=%d): %s", register_address_, reg_count,
                response.error_message.c_str());
