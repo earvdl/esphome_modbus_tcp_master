@@ -44,8 +44,14 @@ async def to_code(config):
     )
     
     # Add watchdog configuration if specified
+    # if CONF_WATCHDOG_REGISTER in config:
+    #     cg.add(var.set_watchdog_register(config[CONF_WATCHDOG_REGISTER]))
+    #     cg.add(var.set_watchdog_interval(config[CONF_WATCHDOG_INTERVAL]))
+    # inside to_code(config): suggested by CoPilot
     if CONF_WATCHDOG_REGISTER in config:
         cg.add(var.set_watchdog_register(config[CONF_WATCHDOG_REGISTER]))
+    
+    if CONF_WATCHDOG_INTERVAL in config:
         cg.add(var.set_watchdog_interval(config[CONF_WATCHDOG_INTERVAL]))
     
     # Add safe mode registers if specified
