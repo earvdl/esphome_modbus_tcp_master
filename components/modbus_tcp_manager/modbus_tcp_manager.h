@@ -445,8 +445,8 @@ private:
 
         // Very short timeouts for data operations
         struct timeval timeout;
-        timeout.tv_sec = 0;        // earvdl: changed from
-        timeout.tv_usec = 500000;  // 100ms timeout - even shorter - earvdl: changed from 100ms to 500ms
+        timeout.tv_sec = 2;        // 
+        timeout.tv_usec = 0;  // 100ms timeout - even shorter - earvdl: changed from 100ms to 2s
         ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         ::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
@@ -474,8 +474,8 @@ private:
                 FD_SET(sock, &write_fds);
                 
                 struct timeval connect_timeout;
-                connect_timeout.tv_sec = 0;
-                connect_timeout.tv_usec = 500000;  // 100ms max wait - very short - earvdl: changed from 100ms into 500ms
+                connect_timeout.tv_sec = 2;
+                connect_timeout.tv_usec = 0;  // 100ms max wait - very short - earvdl: changed from 100ms into 2s
                 
                 int select_result = ::select(sock + 1, nullptr, &write_fds, nullptr, &connect_timeout);
                 if (select_result <= 0) {
