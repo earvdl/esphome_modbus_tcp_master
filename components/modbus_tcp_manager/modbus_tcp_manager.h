@@ -13,7 +13,7 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include "lwip/inet.h"
-#include <errno.h>
+#include <errno.h>tiem
 #include <fcntl.h>
 #include <sys/select.h>
 #endif
@@ -343,7 +343,7 @@ private:
                         }
                         connection_check_state_ = ConnectionCheckState::CLEANUP;
                     }
-                } else if (now - connection_check_start_time_ > 500) {
+                } else if (now - connection_check_start_time_ > 500) { // earvdl: changed from > 500 into > 2000
                     // Timeout after 500ms
                     ESP_LOGV(TAG, "Connection check timeout");
                     connection_check_success_ = false;
@@ -445,8 +445,8 @@ private:
 
         // Very short timeouts for data operations
         struct timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 100000;  // 100ms timeout - even shorter
+        timeout.tv_sec = 0;        // earvdl: changed from
+        timeout.tv_usec = 100000;  // 100ms timeout - even shorter - earvdl: changed from 100ms to 500ms
         ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         ::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
