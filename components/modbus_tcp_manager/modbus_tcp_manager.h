@@ -190,11 +190,11 @@ class ModbusTCPManager : public Component {
   //--------------------------------------------
   // added for modbus cache management
 
-  void ModbusTCPManager::invalidate_register_cache() {
+  void invalidate_register_cache() {
     for (size_t i = 0; i < CACHE_SIZE; i++) reg_cache_[i].valid = false;
   }
   
-  ModbusResponse ModbusTCPManager::read_registers_cached(uint16_t start_reg, uint16_t count, uint8_t function_code, uint32_t ttl_ms) {
+  ModbusResponse read_registers_cached(uint16_t start_reg, uint16_t count, ModbusFunction function_code, uint32_t ttl_ms) {
     const uint32_t now = millis();
   
     // Exact cache hit
@@ -806,7 +806,7 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
                                    ? 2
                                    : 1;
 
-    ModbusResponse response = parent_->auto response = parent_->read_registers_cached(register_address_, reg_count, function_code_, 200);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, function_code_, 200);
     if (!response.success) {
       ESP_LOGW(TAG, "Failed to read register %d (count=%d): %s", register_address_, reg_count,
                response.error_message.c_str());
