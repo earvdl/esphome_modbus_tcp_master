@@ -69,7 +69,9 @@ class ModbusTCPManager : public Component {
         connection_check_start_time_(0),
         connection_check_success_(false),
         persistent_sock_(-1),
-        last_persistent_check_(0) {}
+        last_persistent_check_(0),
+        last_reconnect_ms_(0),
+        reconnect_cooldown_ms_(200){}
 
   void setup() override {
     ESP_LOGD(TAG, "Setting up Modbus TCP Manager for %s:%d", host_.c_str(), port_);
@@ -110,6 +112,10 @@ class ModbusTCPManager : public Component {
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
   bool is_connected() const { return is_connected_; }
+
+  bool in_reconnect_cooldown() const {
+    return is_connected_ && (millis() - last_reconnect_ms_ < reconnect_cooldown_ms_);
+  }
 
   void mark_connection_failed() { is_connected_ = false; }
 
@@ -253,6 +259,10 @@ class ModbusTCPManager : public Component {
   uint16_t watchdog_register_;
   bool watchdog_enabled_;
   uint32_t watchdog_interval_;
+
+  uint32_t last_reconnect_ms_;
+  uint32_t reconnect_cooldown_ms_;
+
   uint32_t last_watchdog_time_;
   uint16_t watchdog_counter_;
   bool safe_mode_active_;
@@ -348,7 +358,9 @@ class ModbusTCPManager : public Component {
           if (!is_connected_) {
             ESP_LOGI(TAG, "Modbus connection restored to %s:%d", host_.c_str(), port_);
             is_connected_ = true;
+            last_reconnect_ms_ = millis();
           }
+         
         } else {
           if (is_connected_) {
             ESP_LOGW(TAG, "Modbus connection lost to %s:%d", host_.c_str(), port_);
@@ -669,6 +681,11 @@ class ModbusTCPSensor : public PollingComponent, public sensor::Sensor {
       if (!parent_->is_connected()) return;
     }
 
+    if (parent_->in_reconnect_cooldown()) {
+      ESP_LOGV(TAG, "Reconnect cooldown active, skipping poll for reg %u", register_address_);
+      return;
+    }
+
     ModbusFunction func = (function_code_ == 4) ? ModbusFunction::READ_INPUT_REGISTERS
                                                 : ModbusFunction::READ_HOLDING_REGISTERS;
 
@@ -715,6 +732,11 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
     if (!parent_->is_connected()) {
       const_cast<ModbusTCPManager *>(parent_)->check_connection();
       if (!parent_->is_connected()) return;
+    }
+
+    if (parent_->in_reconnect_cooldown()) {
+      ESP_LOGV(TAG, "Reconnect cooldown active, skipping poll for reg %u", register_address_);
+      return;
     }
 
     ModbusFunction func = (function_code_ == 4) ? ModbusFunction::READ_INPUT_REGISTERS
