@@ -195,35 +195,112 @@ class ModbusTCPManager : public Component {
   }
   
   ModbusResponse read_registers_cached(uint16_t start_reg, uint16_t count, ModbusFunction function_code, uint32_t ttl_ms) {
-    const uint32_t now = millis();
-  
-    // Exact cache hit
-    for (size_t i = 0; i < CACHE_SIZE; i++) {
-      auto &e = reg_cache_[i];
-      if (!e.valid) continue;
-      if (e.function_code == function_code && e.start_reg == start_reg && e.count == count) {
-        if ((now - e.ts_ms) <= ttl_ms) {
-          return e.response;
-        }
+  const uint32_t now = millis();
+
+  // 1) Exact cache hit
+  for (size_t i = 0; i < CACHE_SIZE; i++) {
+    auto &e = reg_cache_[i];
+    if (!e.valid) continue;
+
+    if (e.function_code == function_code &&
+        e.start_reg == start_reg &&
+        e.count == count) {
+      const uint32_t age_ms = now - e.ts_ms;
+      if (age_ms <= ttl_ms) {
+        ESP_LOGD(TAG,
+                 "CACHE HIT exact fc=%u start=0x%04X count=%u age=%ums ttl=%ums slot=%u",
+                 static_cast<unsigned>(function_code),
+                 static_cast<unsigned>(start_reg),
+                 static_cast<unsigned>(count),
+                 static_cast<unsigned>(age_ms),
+                 static_cast<unsigned>(ttl_ms),
+                 static_cast<unsigned>(i));
+        return e.response;
+      } else {
+        ESP_LOGV(TAG,
+                 "CACHE STALE exact fc=%u start=0x%04X count=%u age=%ums ttl=%ums slot=%u",
+                 static_cast<unsigned>(function_code),
+                 static_cast<unsigned>(start_reg),
+                 static_cast<unsigned>(count),
+                 static_cast<unsigned>(age_ms),
+                 static_cast<unsigned>(ttl_ms),
+                 static_cast<unsigned>(i));
       }
     }
-  
-    // Miss -> real read
-    ModbusResponse resp = this->read_registers(start_reg, count, function_code);
-  
-    // Store/overwrite round-robin
-    auto &slot = reg_cache_[reg_cache_next_];
-    slot.valid = true;
-    slot.function_code = function_code;
-    slot.start_reg = start_reg;
-    slot.count = count;
-    slot.ts_ms = now;
-    slot.response = resp;
-  
-    reg_cache_next_ = (reg_cache_next_ + 1) % CACHE_SIZE;
-    return resp;
   }
 
+  // 2) Range cache hit (requested block fully contained in cached block)
+  for (size_t i = 0; i < CACHE_SIZE; i++) {
+    auto &e = reg_cache_[i];
+    if (!e.valid) continue;
+    if (e.function_code != function_code) continue;
+    if (!e.response.success) continue;
+
+    const uint32_t age_ms = now - e.ts_ms;
+    if (age_ms > ttl_ms) continue;
+
+    const uint32_t req_start = static_cast<uint32_t>(start_reg);
+    const uint32_t req_end_excl = req_start + static_cast<uint32_t>(count);
+    const uint32_t blk_start = static_cast<uint32_t>(e.start_reg);
+    const uint32_t blk_end_excl = blk_start + static_cast<uint32_t>(e.count);
+
+    if (req_start >= blk_start && req_end_excl <= blk_end_excl) {
+      const size_t word_offset = static_cast<size_t>(req_start - blk_start);
+      const size_t byte_offset = word_offset * 2;
+      const size_t need_bytes = static_cast<size_t>(count) * 2;
+
+      if (e.response.data.size() >= byte_offset + need_bytes) {
+        ModbusResponse out;
+        out.success = true;
+        out.error_message = "";
+        out.data.assign(e.response.data.begin() + byte_offset,
+                        e.response.data.begin() + byte_offset + need_bytes);
+
+        ESP_LOGD(TAG,
+                 "CACHE HIT range fc=%u req=0x%04X/%u from block=0x%04X/%u age=%ums ttl=%ums slot=%u",
+                 static_cast<unsigned>(function_code),
+                 static_cast<unsigned>(start_reg),
+                 static_cast<unsigned>(count),
+                 static_cast<unsigned>(e.start_reg),
+                 static_cast<unsigned>(e.count),
+                 static_cast<unsigned>(age_ms),
+                 static_cast<unsigned>(ttl_ms),
+                 static_cast<unsigned>(i));
+        return out;
+      } else {
+        ESP_LOGW(TAG,
+                 "CACHE RANGE SIZE MISMATCH fc=%u req=0x%04X/%u block=0x%04X/%u bytes=%u need=%u",
+                 static_cast<unsigned>(function_code),
+                 static_cast<unsigned>(start_reg),
+                 static_cast<unsigned>(count),
+                 static_cast<unsigned>(e.start_reg),
+                 static_cast<unsigned>(e.count),
+                 static_cast<unsigned>(e.response.data.size()),
+                 static_cast<unsigned>(byte_offset + need_bytes));
+      }
+    }
+  }
+
+  // 3) Miss -> real read
+  ESP_LOGV(TAG, "CACHE MISS fc=%u start=0x%04X count=%u",
+           static_cast<unsigned>(function_code),
+           static_cast<unsigned>(start_reg),
+           static_cast<unsigned>(count));
+
+  ModbusResponse resp = this->read_registers(start_reg, count, function_code);
+
+  // 4) Store/overwrite round-robin
+  auto &slot = reg_cache_[reg_cache_next_];
+  slot.valid = true;
+  slot.function_code = function_code;
+  slot.start_reg = start_reg;
+  slot.count = count;
+  slot.ts_ms = now;
+  slot.response = resp;
+
+  reg_cache_next_ = (reg_cache_next_ + 1) % CACHE_SIZE;
+  return resp;
+}
   //--------------------------------------------
 
   bool write_register(uint16_t address, int16_t value) {
