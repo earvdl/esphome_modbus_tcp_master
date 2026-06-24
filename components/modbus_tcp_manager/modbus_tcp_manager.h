@@ -392,7 +392,7 @@ private:
         bool write_success = write_register(watchdog_register_, watchdog_counter_);
         
         if (write_success) {
-            delay(100);
+            // delay(100); // earvdl: removed, because CoPilot said: 3. Make watchdog non-blocking - Avoid the 100ms delay:
             ModbusResponse response = read_register(watchdog_register_);
             
             if (response.success && !response.data.empty()) {
@@ -445,8 +445,8 @@ private:
 
         // Very short timeouts for data operations
         struct timeval timeout;
-        timeout.tv_sec = 2;        // 
-        timeout.tv_usec = 0;  // 100ms timeout - even shorter - earvdl: changed from 100ms to 2s
+        timeout.tv_sec = 0;        // 
+        timeout.tv_usec = 100000;  // 100ms timeout - even shorter - earvdl: changed from 100ms to 2s, changed it back
         ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         ::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
@@ -474,8 +474,8 @@ private:
                 FD_SET(sock, &write_fds);
                 
                 struct timeval connect_timeout;
-                connect_timeout.tv_sec = 2;
-                connect_timeout.tv_usec = 0;  // 100ms max wait - very short - earvdl: changed from 100ms into 2s
+                connect_timeout.tv_sec = 0;
+                connect_timeout.tv_usec = 100000;  // 100ms max wait - very short - earvdl: changed from 100ms into 2s, changed it back
                 
                 int select_result = ::select(sock + 1, nullptr, &write_fds, nullptr, &connect_timeout);
                 if (select_result <= 0) {
@@ -637,15 +637,19 @@ public:
             }
         }
 
+        // earvdl: commented out. reason (CoPilot): The issue: After a reboot, the device is disconnected. 
+        // The code checks the connection (which takes time), but then it still waits 200ms if any other sensor 
+        // recently updated. This serialization causes the 188ms delay you're seeing.
+        // Advise: Option 1 - Remove rate limiting entirely (simplest):
         // Simple rate limiting to prevent all sensors updating simultaneously
-        static uint32_t last_any_update = 0;
-        uint32_t now = millis();
+        // static uint32_t last_any_update = 0;
+        // uint32_t now = millis();
         
-        if (now - last_any_update < 200) {
-            ESP_LOGV(TAG, "Rate limiting sensor %d, skipping update", register_address_);
-            return;
-        }
-        last_any_update = now;
+        // if (now - last_any_update < 200) {
+        //     ESP_LOGV(TAG, "Rate limiting sensor %d, skipping update", register_address_);
+        //     return;
+        // }
+        // last_any_update = now;
 
         ModbusFunction func = (function_code_ == 4) ? 
             ModbusFunction::READ_INPUT_REGISTERS : 
