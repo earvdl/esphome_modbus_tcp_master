@@ -343,7 +343,7 @@ private:
                         }
                         connection_check_state_ = ConnectionCheckState::CLEANUP;
                     }
-                } else if (now - connection_check_start_time_ > 500) { // earvdl: changed from > 500 into > 2000
+                } else if (now - connection_check_start_time_ > 2000) { // earvdl: changed from > 500 into > 2000
                     // Timeout after 500ms
                     ESP_LOGV(TAG, "Connection check timeout");
                     connection_check_success_ = false;
@@ -446,7 +446,7 @@ private:
         // Very short timeouts for data operations
         struct timeval timeout;
         timeout.tv_sec = 0;        // earvdl: changed from
-        timeout.tv_usec = 100000;  // 100ms timeout - even shorter - earvdl: changed from 100ms to 500ms
+        timeout.tv_usec = 500000;  // 100ms timeout - even shorter - earvdl: changed from 100ms to 500ms
         ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         ::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
@@ -475,7 +475,7 @@ private:
                 
                 struct timeval connect_timeout;
                 connect_timeout.tv_sec = 0;
-                connect_timeout.tv_usec = 100000;  // 100ms max wait - very short
+                connect_timeout.tv_usec = 500000;  // 100ms max wait - very short - earvdl: changed from 100ms into 500ms
                 
                 int select_result = ::select(sock + 1, nullptr, &write_fds, nullptr, &connect_timeout);
                 if (select_result <= 0) {
