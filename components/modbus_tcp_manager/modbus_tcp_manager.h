@@ -180,6 +180,7 @@ class ModbusTCPManager : public Component {
     if (!parse_read_response(resp_data, response, function, request_tid)) {
       is_connected_ = false;
       reset_persistent_socket(sock);
+      invalidate_register_cache();
       return response;
     }
 
@@ -187,8 +188,6 @@ class ModbusTCPManager : public Component {
     response.success = true;
     return response;
   }
-  //--------------------------------------------
-  // added for modbus cache management
 
   void invalidate_register_cache() {
     for (size_t i = 0; i < CACHE_SIZE; i++) reg_cache_[i].valid = false;
@@ -369,31 +368,33 @@ class ModbusTCPManager : public Component {
     return direct;
   }  
 
-  //--------------------------------------------
 
   bool write_register(uint16_t address, int16_t value) {
     ESP_LOGD(TAG, "Writing value %d to register %d", value, address);
-
+  
     int sock = create_connection();
     if (sock < 0) {
       is_connected_ = false;
       return false;
     }
-
+  
     uint16_t request_tid = 0;
     std::vector<uint8_t> request = build_write_request(address, value, request_tid);
-
+  
     bool success = send_data(sock, request);
     if (success) {
       std::vector<uint8_t> response = receive_modbus_frame(sock);
       success = validate_write_response(response, request_tid, 0x06);
     }
-
+  
     is_connected_ = success;
     if (!success) {
       reset_persistent_socket(sock);
+      invalidate_register_cache();
       ESP_LOGW(TAG, "Failed to write to register %d", address);
     } else {
+      // conservative: any write may affect read cache view
+      invalidate_register_cache();
       ESP_LOGD(TAG, "Successfully wrote value %d to register %d", value, address);
     }
     return success;
@@ -401,32 +402,35 @@ class ModbusTCPManager : public Component {
 
   bool write_registers(uint16_t start_address, const std::vector<int16_t> &values) {
     ESP_LOGD(TAG, "Writing %d values starting at register %d", values.size(), start_address);
-
+  
     if (values.empty() || values.size() > 123) {
       ESP_LOGE(TAG, "Invalid value count: %d", values.size());
       return false;
     }
-
+  
     int sock = create_connection();
     if (sock < 0) {
       is_connected_ = false;
       return false;
     }
-
+  
     uint16_t request_tid = 0;
     std::vector<uint8_t> request = build_write_multiple_request(start_address, values, request_tid);
-
+  
     bool success = send_data(sock, request);
     if (success) {
       std::vector<uint8_t> response = receive_modbus_frame(sock);
       success = validate_write_response(response, request_tid, 0x10);
     }
-
+  
     is_connected_ = success;
     if (!success) {
       reset_persistent_socket(sock);
+      invalidate_register_cache();
       ESP_LOGW(TAG, "Failed to write multiple registers starting at %d", start_address);
     } else {
+      // conservative: clear cached reads after successful write
+      invalidate_register_cache();
       ESP_LOGD(TAG, "Successfully wrote %d values starting at register %d", values.size(), start_address);
     }
     return success;
@@ -704,10 +708,15 @@ class ModbusTCPManager : public Component {
   }
 
   bool send_data(int sock, const std::vector<uint8_t> &data) {
-    int sent = ::send(sock, data.data(), data.size(), 0);
-    if (sent != (int)data.size()) {
-      reset_persistent_socket(sock);
-      return false;
+    size_t offset = 0;
+    while (offset < data.size()) {
+      int sent = ::send(sock, data.data() + offset, data.size() - offset, 0);
+      if (sent <= 0) {
+        reset_persistent_socket(sock);
+        invalidate_register_cache();
+        return false;
+      }
+      offset += static_cast<size_t>(sent);
     }
     return true;
   }
