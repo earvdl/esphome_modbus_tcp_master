@@ -825,7 +825,7 @@ class ModbusTCPSensor : public PollingComponent, public sensor::Sensor {
     ModbusFunction func = (function_code_ == 4) ? ModbusFunction::READ_INPUT_REGISTERS
                                                 : ModbusFunction::READ_HOLDING_REGISTERS;
 
-    ModbusResponse response = parent_->read_register(register_address_, func);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, 1, func, 3000);
     if (response.success && !response.data.empty()) {
       int16_t raw_value = static_cast<int16_t>(response.data[0]);
       float scaled_value = (raw_value * scale_) + offset_;
