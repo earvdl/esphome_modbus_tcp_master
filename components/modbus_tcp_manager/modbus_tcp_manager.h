@@ -234,7 +234,8 @@ class ModbusTCPManager : public Component {
         if (!e.valid) continue;
         if (e.function_code != function_code) continue;
   
-        const uint32_t age_ms = now - e.ts_ms;
+        const uint32_t tnow = millis();
+        const uint32_t age_ms = tnow - e.ts_ms;
         if (age_ms > ttl_ms) continue;
   
         if (e.start_reg == req_start && e.count == req_count) {
