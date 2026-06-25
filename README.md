@@ -1,7 +1,19 @@
-# ESPHome Modbus TCP Manager <a href="https://buymeacoffee.com/gucioo" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;-webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;" ></a>
+# ESPHome Modbus TCP Manager
 
 A robust external component for ESPHome that provides Modbus TCP client functionality with advanced connection management, multiple register support, and optional safety features.
 
+## About this fork
+ I (with the extensive help of CoPilot) added mainly two new features:
+ - Modbus sensors now support multiple data types:
+     - U16 (unsigned int16)
+     - S16 (signed int16)
+     - U32_BE (unsigned int32, big indian)
+     - U32_LE (unsigned in32, little indian)
+     - S32_BE (signed int32, big indian)
+     - S32_LE (signed in32, little indian)
+ - Adaptive caching strategy: Modbus response blocks (multiple registers) are cached for near-future new requests by other sensors. This reduces amount of network traffic. Order of sensors in ESPHome yaml makes a difference now. Order sensors on increasing Modbus address.
+ - **Note**: the consequences of the introduction of data types to writing to modbus registers has not been explored yet... Writing was noet tested at all by me (yet). I didn't need it so far.
+       
 ## Features
 
 - 🌐 **Modbus TCP Client** - Connect to any Modbus TCP server/device
@@ -24,11 +36,12 @@ A robust external component for ESPHome that provides Modbus TCP client function
 
 ## Works with ESP32
 
-Tested on ESP32-S2-mini, esp-idf framework:
+Tested on ESP32-WROOM-32, esp-idf framework:
 
 ```yaml
 esp32:
-  board: lolin_s2_mini
+  variant:32
+  flash_size: 4MB
   framework:
     type: esp-idf
 ```
@@ -39,9 +52,13 @@ Add this to your ESPHome configuration:
 
 ```yaml
 external_components:
-  - source: github://Gucioo/esphome_modbus_tcp_master
-    components: [modbus_tcp_manager]
-    refresh: 0s  # Always use latest version during development
+  - source:
+      type: git
+      url: https://github.com/earvdl/esphome_modbus_tcp_master
+      ref: stable
+    components: 
+      - modbus_tcp_manager
+    refresh: 60s
 ```
 
 ## Basic Configuration
@@ -70,7 +87,8 @@ sensor:
     name: "Temperature Sensor"
     register_address: 0
     function_code: 4      # Read Input Registers
-    scale: 0.1           # Multiply raw value by 0.1
+    value_type: U16       # data type is unsigned, 16bits integer
+    scale: 0.1            # Multiply raw value by 0.1
     update_interval: 5s
     unit_of_measurement: "°C"
     device_class: "temperature"
@@ -110,6 +128,7 @@ sensor:
     name: "Inlet Temperature"
     register_address: 0
     function_code: 4      # Input register
+    value_type: U16
     scale: 0.1
     update_interval: 2s
     unit_of_measurement: "°C"
@@ -121,6 +140,7 @@ sensor:
     name: "System Pressure"
     register_address: 10
     function_code: 3      # Holding register
+    value_type: U32       # data type is unsigned 32-bits integer, addresses 10 an 11 are read!
     scale: 0.01           # Different scaling
     update_interval: 5s
     unit_of_measurement: "bar"
@@ -132,6 +152,7 @@ sensor:
     name: "Flow Rate"
     register_address: 20
     function_code: 4
+    value_type: U16
     scale: 0.1
     offset: -10.0         # Subtract 10 from scaled value
     update_interval: 3s
