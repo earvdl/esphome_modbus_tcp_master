@@ -345,14 +345,6 @@ button:
 - Configurable register values for safe operation
 - Manual recovery when connection restored
 
-## Examples
-
-See the [examples](examples/) directory for complete configuration examples:
-- Basic temperature monitoring
-- Boiler control system  
-- Multi-zone HVAC control
-- Industrial sensor monitoring
-
 ## Contributing
 
 Issues and pull requests are welcome! Please ensure:
