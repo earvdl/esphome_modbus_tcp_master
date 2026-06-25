@@ -195,6 +195,36 @@ class ModbusTCPManager : public Component {
   }
   
   ModbusResponse read_registers_cached(uint16_t start_reg, uint16_t count, ModbusFunction function_code, uint32_t ttl_ms) {
+  // Caching/fetching strategy (general-purpose):
+  //
+  // 1) Cache lookup order
+  //    a) Exact hit: same (function_code, start_reg, count) within ttl_ms.
+  //    b) Range hit: requested [start_reg, start_reg+count) fully contained in a
+  //       cached block for the same function_code and still within ttl_ms.
+  //       Return a sliced subset of cached words.
+  //
+  // 2) Miss handling (adaptive expansion)
+  //    - On miss, perform a wider read around the requested range to exploit spatial locality.
+  //    - Expanded block size is bounded (e.g. 8..32 registers) and aligned (e.g. 4-register boundary)
+  //      to make future nearby requests likely range-hits.
+  //    - Store expanded response as one cache entry, then retry cache lookup for original request.
+  //    - If expanded read fails or still cannot satisfy request, fallback to direct exact read.
+  //
+  // 3) Storage policy
+  //    - Fixed-size ring cache (CACHE_SIZE entries), each entry stores one full Modbus response block.
+  //    - New entries overwrite oldest (round-robin).
+  //    - Entry key: (function_code, start_reg, count), plus timestamp and response payload.
+  //
+  // 4) Coherency and safety
+  //    - Cache is invalidated on connection loss/socket reset/read failure.
+  //    - Cache is separated by Modbus function code (do not mix FC03/FC04 data).
+  //    - ttl_ms is caller-controlled: short TTL for fast-changing values, longer TTL for slower values.
+  //
+  // 5) Tuning notes
+  //    - CACHE_SIZE controls number of cached blocks, not number of registers.
+  //    - Larger expanded blocks improve hit rate for clustered addresses but increase bus payload.
+  //    - Too-small TTL reduces hit rate; too-large TTL can serve stale values.
+    
     const uint32_t now = millis();
   
     auto try_from_cache = [&](uint16_t req_start, uint16_t req_count) -> ModbusResponse {
@@ -237,6 +267,7 @@ class ModbusTCPManager : public Component {
           if (e.response.data.size() >= word_offset + need_words) {
             ModbusResponse out;
             out.success = true;
+            out.error_message.clear();
             out.data.assign(e.response.data.begin() + word_offset,
                             e.response.data.begin() + word_offset + need_words);
   
@@ -270,48 +301,63 @@ class ModbusTCPManager : public Component {
     ModbusResponse cached = try_from_cache(start_reg, count);
     if (cached.success) return cached;
   
-    // ---- Prefetch heuristic for your fast EM24 block (FC=4, regs < 0x0018, 1-2 words) ----
-    const bool in_fast_block =
-        (function_code == ModbusFunction::READ_INPUT_REGISTERS) &&
-        (start_reg < 0x0018) &&
-        (count <= 2);
+    // 3) Adaptive expansion on miss (general strategy)
+    //    - expand reads for locality, bounded to reasonable Modbus size.
+    constexpr uint16_t MIN_EXPAND = 8;
+    constexpr uint16_t MAX_EXPAND = 32;
+    constexpr uint16_t ALIGN = 4;  // register alignment for stable blocks
   
-    if (in_fast_block) {
-      constexpr uint16_t PREFETCH_START = 0x0000;
-      constexpr uint16_t PREFETCH_COUNT = 24;  // covers 0x0000..0x0017
+    uint16_t expand_count = count * 4;
+    if (expand_count < MIN_EXPAND) expand_count = MIN_EXPAND;
+    if (expand_count > MAX_EXPAND) expand_count = MAX_EXPAND;
   
-      // Maybe another sensor just prefetched it
-      ModbusResponse pref_cached = try_from_cache(PREFETCH_START, PREFETCH_COUNT);
-      if (!pref_cached.success) {
-        ESP_LOGD(TAG, "CACHE MISS fc=%u req=0x%04X/%u -> PREFETCH 0x%04X/%u",
-                 (unsigned) function_code, (unsigned) start_reg, (unsigned) count,
-                 (unsigned) PREFETCH_START, (unsigned) PREFETCH_COUNT);
+    uint16_t expand_start = static_cast<uint16_t>((start_reg / ALIGN) * ALIGN);
   
-        ModbusResponse pref = this->read_registers(PREFETCH_START, PREFETCH_COUNT, function_code);
-        if (pref.success) {
-          store_cache(PREFETCH_START, PREFETCH_COUNT, pref);
-        } else {
-          // fallback: normal direct read
-          ESP_LOGW(TAG, "PREFETCH failed, fallback direct fc=%u start=0x%04X count=%u: %s",
-                   (unsigned) function_code, (unsigned) start_reg, (unsigned) count,
-                   pref.error_message.c_str());
-        }
+    // keep requested range within expanded block
+    const uint32_t req_end = static_cast<uint32_t>(start_reg) + count;
+    uint32_t exp_end = static_cast<uint32_t>(expand_start) + expand_count;
+    if (req_end > exp_end) {
+      uint32_t needed = req_end - expand_start;
+      expand_count = static_cast<uint16_t>(needed > MAX_EXPAND ? MAX_EXPAND : needed);
+      exp_end = static_cast<uint32_t>(expand_start) + expand_count;
+      if (req_end > exp_end) {
+        // shift start left if still needed and possible
+        uint32_t shift = req_end - exp_end;
+        expand_start = static_cast<uint16_t>((shift > expand_start) ? 0 : (expand_start - shift));
       }
-  
-      // Retry from cache/range after prefetch attempt
-      ModbusResponse post = try_from_cache(start_reg, count);
-      if (post.success) return post;
     }
   
-    // Normal miss -> direct read
-    ESP_LOGD(TAG, "CACHE MISS direct fc=%u start=0x%04X count=%u",
+    // Final safety clamp (Modbus read limits are much higher, but keep conservative)
+    if (expand_count < count) expand_count = count;
+    if (expand_count > MAX_EXPAND) expand_count = MAX_EXPAND;
+  
+    ESP_LOGD(TAG, "CACHE MISS fc=%u req=0x%04X/%u -> EXPAND 0x%04X/%u",
+             (unsigned) function_code, (unsigned) start_reg, (unsigned) count,
+             (unsigned) expand_start, (unsigned) expand_count);
+  
+    ModbusResponse expanded = this->read_registers(expand_start, expand_count, function_code);
+  
+    if (expanded.success) {
+      store_cache(expand_start, expand_count, expanded);
+  
+      // retry after expanded fill
+      ModbusResponse post = try_from_cache(start_reg, count);
+      if (post.success) return post;
+    } else {
+      ESP_LOGW(TAG, "Expanded read failed fc=%u start=0x%04X count=%u: %s",
+               (unsigned) function_code, (unsigned) expand_start, (unsigned) expand_count,
+               expanded.error_message.c_str());
+    }
+  
+    // 4) Fallback exact read if expanded path didn't satisfy request
+    ESP_LOGD(TAG, "CACHE MISS fallback direct fc=%u start=0x%04X count=%u",
              (unsigned) function_code, (unsigned) start_reg, (unsigned) count);
   
     ModbusResponse resp = this->read_registers(start_reg, count, function_code);
     store_cache(start_reg, count, resp);
     return resp;
   }
-
+  
   //--------------------------------------------
 
   bool write_register(uint16_t address, int16_t value) {
@@ -894,7 +940,7 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
                                    ? 2
                                    : 1;
 
-    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, static_cast<ModbusFunction>(function_code_), 1500);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, func, 1500);
     if (!response.success) {
       ESP_LOGW(TAG, "Failed to read register %d (count=%d): %s", register_address_, reg_count,
                response.error_message.c_str());
