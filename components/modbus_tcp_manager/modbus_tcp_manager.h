@@ -195,6 +195,36 @@ class ModbusTCPManager : public Component {
   }
   
   ModbusResponse read_registers_cached(uint16_t start_reg, uint16_t count, ModbusFunction function_code, uint32_t ttl_ms) {
+  // Caching/fetching strategy (general-purpose):
+  //
+  // 1) Cache lookup order
+  //    a) Exact hit: same (function_code, start_reg, count) within ttl_ms.
+  //    b) Range hit: requested [start_reg, start_reg+count) fully contained in a
+  //       cached block for the same function_code and still within ttl_ms.
+  //       Return a sliced subset of cached words.
+  //
+  // 2) Miss handling (adaptive expansion)
+  //    - On miss, perform a wider read around the requested range to exploit spatial locality.
+  //    - Expanded block size is bounded (e.g. 8..32 registers) and aligned (e.g. 4-register boundary)
+  //      to make future nearby requests likely range-hits.
+  //    - Store expanded response as one cache entry, then retry cache lookup for original request.
+  //    - If expanded read fails or still cannot satisfy request, fallback to direct exact read.
+  //
+  // 3) Storage policy
+  //    - Fixed-size ring cache (CACHE_SIZE entries), each entry stores one full Modbus response block.
+  //    - New entries overwrite oldest (round-robin).
+  //    - Entry key: (function_code, start_reg, count), plus timestamp and response payload.
+  //
+  // 4) Coherency and safety
+  //    - Cache is invalidated on connection loss/socket reset/read failure.
+  //    - Cache is separated by Modbus function code (do not mix FC03/FC04 data).
+  //    - ttl_ms is caller-controlled: short TTL for fast-changing values, longer TTL for slower values.
+  //
+  // 5) Tuning notes
+  //    - CACHE_SIZE controls number of cached blocks, not number of registers.
+  //    - Larger expanded blocks improve hit rate for clustered addresses but increase bus payload.
+  //    - Too-small TTL reduces hit rate; too-large TTL can serve stale values.
+    
     auto try_from_cache = [&](uint16_t req_start, uint16_t req_count) -> ModbusResponse {
       const uint32_t tnow = millis();  // IMPORTANT: fresh time per lookup
   
