@@ -11,7 +11,7 @@ A robust external component for ESPHome that provides Modbus TCP client function
      - U32_LE (unsigned in32, little indian)
      - S32_BE (signed int32, big indian)
      - S32_LE (signed in32, little indian)
- - Adaptive caching strategy: Modbus response blocks (multiple registers) are cached for near-future new requests by other sensors. This reduces amount of network traffic. Order of sensors in ESPHome yaml makes a difference now. Order sensors on increasing Modbus address.
+ - Adaptive caching strategy: Modbus response blocks (multiple registers) are cached for near-future new requests by other sensors. This reduces amount of network traffic. Order of sensors in ESPHome yaml makes a difference now. Order sensors on increasing Modbus address. Use same update interval for sensors with up to eight (for now) consecutive addresses.
  - **Note**: the consequences of the introduction of data types to writing to modbus registers has not been explored yet... Writing was not tested at all by me (yet). I didn't need it so far.
        
 ## Features
