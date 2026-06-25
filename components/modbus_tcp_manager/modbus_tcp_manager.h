@@ -173,6 +173,7 @@ class ModbusTCPManager : public Component {
     if (resp_data.empty()) {
       response.error_message = "Receive failed";
       is_connected_ = false;
+      invalidate_register_cache();
       return response;
     }
 
@@ -186,6 +187,159 @@ class ModbusTCPManager : public Component {
     response.success = true;
     return response;
   }
+  //--------------------------------------------
+  // added for modbus cache management
+
+  void invalidate_register_cache() {
+    for (size_t i = 0; i < CACHE_SIZE; i++) reg_cache_[i].valid = false;
+  }
+  
+  ModbusResponse read_registers_cached(uint16_t start_reg, uint16_t count, ModbusFunction function_code, uint32_t ttl_ms) {
+    auto try_from_cache = [&](uint16_t req_start, uint16_t req_count) -> ModbusResponse {
+      const uint32_t tnow = millis();  // IMPORTANT: fresh time per lookup
+  
+      // 1) Exact hit
+      for (size_t i = 0; i < CACHE_SIZE; i++) {
+        auto &e = reg_cache_[i];
+        if (!e.valid) continue;
+        if (e.function_code != function_code) continue;
+  
+        const uint32_t age_ms = tnow - e.ts_ms;
+        if (age_ms > ttl_ms) continue;
+  
+        if (e.start_reg == req_start && e.count == req_count) {
+          ESP_LOGD(TAG, "CACHE HIT exact fc=%u start=0x%04X count=%u age=%ums slot=%u",
+                   (unsigned) function_code, (unsigned) req_start, (unsigned) req_count,
+                   (unsigned) age_ms, (unsigned) i);
+          return e.response;
+        }
+      }
+  
+      // 2) Range hit
+      for (size_t i = 0; i < CACHE_SIZE; i++) {
+        auto &e = reg_cache_[i];
+        if (!e.valid) continue;
+        if (e.function_code != function_code) continue;
+        if (!e.response.success) continue;
+  
+        const uint32_t age_ms = tnow - e.ts_ms;
+        if (age_ms > ttl_ms) continue;
+  
+        const uint32_t req_start_u = req_start;
+        const uint32_t req_end_excl = req_start_u + req_count;
+        const uint32_t blk_start = e.start_reg;
+        const uint32_t blk_end_excl = blk_start + e.count;
+  
+        if (req_start_u >= blk_start && req_end_excl <= blk_end_excl) {
+          const size_t word_offset = static_cast<size_t>(req_start_u - blk_start);
+          const size_t need_words = static_cast<size_t>(req_count);
+  
+          if (e.response.data.size() >= word_offset + need_words) {
+            ModbusResponse out;
+            out.success = true;
+            out.error_message.clear();
+            out.data.assign(e.response.data.begin() + word_offset,
+                            e.response.data.begin() + word_offset + need_words);
+  
+            ESP_LOGD(TAG,
+                     "CACHE HIT range fc=%u req=0x%04X/%u from block=0x%04X/%u age=%ums slot=%u",
+                     (unsigned) function_code, (unsigned) req_start, (unsigned) req_count,
+                     (unsigned) e.start_reg, (unsigned) e.count, (unsigned) age_ms, (unsigned) i);
+            return out;
+          }
+        }
+      }
+  
+      ModbusResponse miss;
+      miss.success = false;
+      miss.error_message = "cache miss";
+      return miss;
+    };
+  
+    auto store_cache = [&](uint16_t s, uint16_t c, const ModbusResponse &resp) {
+      // Dedup refresh: if same key exists, refresh in place
+      for (size_t i = 0; i < CACHE_SIZE; i++) {
+        auto &e = reg_cache_[i];
+        if (!e.valid) continue;
+        if (e.function_code == function_code && e.start_reg == s && e.count == c) {
+          e.ts_ms = millis();
+          e.response = resp;
+          return;
+        }
+      }
+  
+      // Otherwise round-robin insert
+      auto &slot = reg_cache_[reg_cache_next_];
+      slot.valid = true;
+      slot.function_code = function_code;
+      slot.start_reg = s;
+      slot.count = c;
+      slot.ts_ms = millis();
+      slot.response = resp;
+      reg_cache_next_ = (reg_cache_next_ + 1) % CACHE_SIZE;
+    };
+  
+    // A) Try cache first
+    ModbusResponse cached = try_from_cache(start_reg, count);
+    if (cached.success) return cached;
+  
+    // B) Adaptive expansion
+    constexpr uint16_t MIN_EXPAND = 8;
+    constexpr uint16_t MAX_EXPAND = 32;
+    constexpr uint16_t ALIGN = 4;
+  
+    uint16_t expand_count = count * 4;
+    if (expand_count < MIN_EXPAND) expand_count = MIN_EXPAND;
+    if (expand_count > MAX_EXPAND) expand_count = MAX_EXPAND;
+  
+    uint16_t expand_start = static_cast<uint16_t>((start_reg / ALIGN) * ALIGN);
+  
+    const uint32_t req_end = static_cast<uint32_t>(start_reg) + count;
+    uint32_t exp_end = static_cast<uint32_t>(expand_start) + expand_count;
+    if (req_end > exp_end) {
+      uint32_t needed = req_end - expand_start;
+      expand_count = static_cast<uint16_t>(needed > MAX_EXPAND ? MAX_EXPAND : needed);
+      exp_end = static_cast<uint32_t>(expand_start) + expand_count;
+      if (req_end > exp_end) {
+        uint32_t shift = req_end - exp_end;
+        expand_start = static_cast<uint16_t>((shift > expand_start) ? 0 : (expand_start - shift));
+      }
+    }
+  
+    if (expand_count < count) expand_count = count;
+    if (expand_count > MAX_EXPAND) expand_count = MAX_EXPAND;
+  
+    ESP_LOGD(TAG, "CACHE MISS fc=%u req=0x%04X/%u -> EXPAND 0x%04X/%u",
+             (unsigned) function_code, (unsigned) start_reg, (unsigned) count,
+             (unsigned) expand_start, (unsigned) expand_count);
+  
+    // C) Expanded read
+    ModbusResponse expanded = this->read_registers(expand_start, expand_count, function_code);
+    if (expanded.success) {
+      store_cache(expand_start, expand_count, expanded);
+  
+      // immediate retry should now hit
+      ModbusResponse post = try_from_cache(start_reg, count);
+      if (post.success) return post;
+  
+      ESP_LOGW(TAG, "Post-expand lookup still missed fc=%u req=0x%04X/%u block=0x%04X/%u",
+               (unsigned) function_code, (unsigned) start_reg, (unsigned) count,
+               (unsigned) expand_start, (unsigned) expand_count);
+    } else {
+      ESP_LOGW(TAG, "Expanded read failed fc=%u start=0x%04X count=%u: %s",
+               (unsigned) function_code, (unsigned) expand_start, (unsigned) expand_count,
+               expanded.error_message.c_str());
+    }
+  
+    // D) Fallback direct
+    ESP_LOGD(TAG, "CACHE MISS fallback direct fc=%u start=0x%04X count=%u",
+             (unsigned) function_code, (unsigned) start_reg, (unsigned) count);
+    ModbusResponse direct = this->read_registers(start_reg, count, function_code);
+    store_cache(start_reg, count, direct);
+    return direct;
+  }  
+
+  //--------------------------------------------
 
   bool write_register(uint16_t address, int16_t value) {
     ESP_LOGD(TAG, "Writing value %d to register %d", value, address);
@@ -266,6 +420,23 @@ class ModbusTCPManager : public Component {
   uint32_t last_watchdog_time_;
   uint16_t watchdog_counter_;
   bool safe_mode_active_;
+
+  //--------------------------------------------
+  // type and field for modbus read caching
+  struct RegisterCacheEntry {
+    bool valid{false};
+    ModbusFunction function_code{ModbusFunction::READ_HOLDING_REGISTERS};
+    uint16_t start_reg{0};
+    uint16_t count{0};
+    uint32_t ts_ms{0};
+    ModbusResponse response;
+  };
+  
+  static constexpr size_t CACHE_SIZE = 8;
+  RegisterCacheEntry reg_cache_[CACHE_SIZE];
+  size_t reg_cache_next_{0};
+
+  //--------------------------------------------
 
   enum class ConnectionCheckState { IDLE, CONNECTING, CLEANUP };
   ConnectionCheckState connection_check_state_;
@@ -359,12 +530,14 @@ class ModbusTCPManager : public Component {
             ESP_LOGI(TAG, "Modbus connection restored to %s:%d", host_.c_str(), port_);
             is_connected_ = true;
             last_reconnect_ms_ = millis();
+            invalidate_register_cache();
           }
          
         } else {
           if (is_connected_) {
             ESP_LOGW(TAG, "Modbus connection lost to %s:%d", host_.c_str(), port_);
             is_connected_ = false;
+            invalidate_register_cache();
             if (persistent_sock_ >= 0) {
               ::close(persistent_sock_);
               persistent_sock_ = -1;
@@ -425,6 +598,7 @@ class ModbusTCPManager : public Component {
   void reset_persistent_socket(int sock) {
     if (persistent_sock_ == sock && persistent_sock_ >= 0) {
       ::close(persistent_sock_);
+      invalidate_register_cache();
       persistent_sock_ = -1;
     }
   }
@@ -689,7 +863,7 @@ class ModbusTCPSensor : public PollingComponent, public sensor::Sensor {
     ModbusFunction func = (function_code_ == 4) ? ModbusFunction::READ_INPUT_REGISTERS
                                                 : ModbusFunction::READ_HOLDING_REGISTERS;
 
-    ModbusResponse response = parent_->read_register(register_address_, func);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, 1, func, 1500);
     if (response.success && !response.data.empty()) {
       int16_t raw_value = static_cast<int16_t>(response.data[0]);
       float scaled_value = (raw_value * scale_) + offset_;
@@ -747,7 +921,7 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
                                    ? 2
                                    : 1;
 
-    ModbusResponse response = parent_->read_registers(register_address_, reg_count, func);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, func, 1500);
     if (!response.success) {
       ESP_LOGW(TAG, "Failed to read register %d (count=%d): %s", register_address_, reg_count,
                response.error_message.c_str());
