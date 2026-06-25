@@ -358,6 +358,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) 
 
 ## Acknowledgments
 
+- Based on the work of [Gucioo] (https://github.com/Gucioo)
 - Based on original work by [GiuseppeP96](https://github.com/GiuseppeP96)
 - Inspired by [creepystefan/esphome_modbus_tcp](https://github.com/creepystefan/esphome_modbus_tcp)
 - Built for the ESPHome and Home Assistant community
