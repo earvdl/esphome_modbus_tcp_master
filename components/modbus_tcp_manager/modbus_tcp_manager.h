@@ -836,7 +836,7 @@ class ModbusTCPSensor : public PollingComponent, public sensor::Sensor {
     ModbusFunction func = (function_code_ == 4) ? ModbusFunction::READ_INPUT_REGISTERS
                                                 : ModbusFunction::READ_HOLDING_REGISTERS;
 
-    ModbusResponse response = parent_->read_registers_cached(register_address_, 1, func, 3000);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, 1, func, 500);
     if (response.success && !response.data.empty()) {
       int16_t raw_value = static_cast<int16_t>(response.data[0]);
       float scaled_value = (raw_value * scale_) + offset_;
@@ -894,7 +894,7 @@ class ModbusTCPAdvancedSensor : public PollingComponent, public sensor::Sensor {
                                    ? 2
                                    : 1;
 
-    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, static_cast<ModbusFunction>(function_code_), 3000);
+    ModbusResponse response = parent_->read_registers_cached(register_address_, reg_count, static_cast<ModbusFunction>(function_code_), 500);
     if (!response.success) {
       ESP_LOGW(TAG, "Failed to read register %d (count=%d): %s", register_address_, reg_count,
                response.error_message.c_str());
