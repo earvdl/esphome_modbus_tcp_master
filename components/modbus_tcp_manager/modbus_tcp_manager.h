@@ -150,13 +150,6 @@ class ModbusTCPManager : public Component {
       return response;
     }
 
-    // std::vector<uint8_t> resp_data = receive_modbus_frame(sock);
-    // if (resp_data.empty()) {
-    //   response.error_message = "Receive failed";
-    //   is_connected_ = false;
-    //   return response;
-    // }
-
     std::vector<uint8_t> resp_data = receive_modbus_frame(sock);
     if (resp_data.empty()) {
       // One retry using a fresh socket (helps with transient Wi-Fi/TCP hiccups)
@@ -232,10 +225,11 @@ class ModbusTCPManager : public Component {
         auto &e = reg_cache_[i];
         if (!e.valid) continue;
         if (e.function_code != function_code) continue;
-  
+        if (!e.response.success) continue;
+      
         const uint32_t age_ms = tnow - e.ts_ms;
         if (age_ms > ttl_ms) continue;
-  
+      
         if (e.start_reg == req_start && e.count == req_count) {
           ESP_LOGD(TAG, "CACHE HIT exact fc=%u start=0x%04X count=%u age=%ums slot=%u",
                    (unsigned) function_code, (unsigned) req_start, (unsigned) req_count,
@@ -363,8 +357,14 @@ class ModbusTCPManager : public Component {
     // D) Fallback direct
     ESP_LOGD(TAG, "CACHE MISS fallback direct fc=%u start=0x%04X count=%u",
              (unsigned) function_code, (unsigned) start_reg, (unsigned) count);
+    
     ModbusResponse direct = this->read_registers(start_reg, count, function_code);
-    store_cache(start_reg, count, direct);
+    
+    // Only cache successful reads to avoid sticky cached failures
+    if (direct.success) {
+      store_cache(start_reg, count, direct);
+    }
+    
     return direct;
   }  
 
