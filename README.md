@@ -7,10 +7,10 @@ A robust external component for ESPHome that provides Modbus TCP client function
  - Modbus sensors now support multiple data types:
      - U16 (unsigned int16)
      - S16 (signed int16)
-     - U32_BE (unsigned int32, big indian)
-     - U32_LE (unsigned in32, little indian)
-     - S32_BE (signed int32, big indian)
-     - S32_LE (signed in32, little indian)
+     - U32_BE (unsigned int32, big endian)
+     - U32_LE (unsigned in32, little endian)
+     - S32_BE (signed int32, big endian)
+     - S32_LE (signed in32, little endian)
  - Adaptive caching strategy: Modbus response blocks (multiple registers) are cached for near-future new requests by other sensors. This reduces amount of network traffic. Order of sensors in ESPHome yaml makes a difference now. Order sensors on increasing Modbus address. Use same update interval for sensors with up to eight (for now) consecutive addresses.
  - **Note**: the consequences of the introduction of data types to writing to modbus registers has not been explored yet... Writing was not tested at all by me (yet). I didn't need it so far.
        
@@ -40,7 +40,7 @@ Tested on ESP32-WROOM-32, esp-idf framework:
 
 ```yaml
 esp32:
-  variant:32
+  variant: esp32
   flash_size: 4MB
   framework:
     type: esp-idf
@@ -140,7 +140,7 @@ sensor:
     name: "System Pressure"
     register_address: 10
     function_code: 3      # Holding register
-    value_type: U32       # data type is unsigned 32-bits integer, addresses 10 an 11 are read!
+    value_type: U32_BE       # data type is unsigned 32-bits integer, addresses 10 an 11 are read!
     scale: 0.01           # Different scaling
     update_interval: 5s
     unit_of_measurement: "bar"
@@ -358,7 +358,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) 
 
 ## Acknowledgments
 
-- Based on the work of [Gucioo] (https://github.com/Gucioo)
+- Based on the work of [Gucioo](https://github.com/Gucioo)
 - Based on original work by [GiuseppeP96](https://github.com/GiuseppeP96)
 - Inspired by [creepystefan/esphome_modbus_tcp](https://github.com/creepystefan/esphome_modbus_tcp)
 - Built for the ESPHome and Home Assistant community
