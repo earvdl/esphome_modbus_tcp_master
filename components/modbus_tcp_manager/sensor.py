@@ -18,7 +18,6 @@ CONF_VALUE_TYPE = "value_type"
 ModbusTCPAdvancedSensor = modbus_tcp_ns.class_(
     "ModbusTCPAdvancedSensor", cg.PollingComponent, sensor.Sensor
 )
-ModbusValueType = modbus_tcp_ns.enum("ModbusValueType")
 
 ModbusValueType = modbus_tcp_ns.enum("ModbusValueType")  # enum class in C++
 
