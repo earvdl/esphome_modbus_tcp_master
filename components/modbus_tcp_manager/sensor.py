@@ -49,7 +49,7 @@ async def to_code(config):
         config[CONF_FUNCTION_CODE],
         config[CONF_SCALE],
         config[CONF_OFFSET],
-        config[CONF_UPDATE_INTERVAL],
+        config[CONF_UPDATE_INTERVAL].total_milliseconds,
         config[CONF_VALUE_TYPE],
     )
     await cg.register_component(var, config)
