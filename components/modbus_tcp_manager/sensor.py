@@ -1,4 +1,3 @@
-```python name=components/modbus_tcp_manager/sensor.py
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor
@@ -66,5 +65,4 @@ async def to_code(config):
 
     await sensor.register_sensor(var, config)
     await cg.register_component(var, config)
-```
 
