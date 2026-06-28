@@ -20,7 +20,9 @@ ModbusTCPAdvancedSensor = modbus_tcp_ns.class_(
 )
 ModbusValueType = modbus_tcp_ns.enum("ModbusValueType")
 
-VALUE_TYPE_MAP = {
+ModbusValueType = modbus_tcp_ns.enum("ModbusValueType")  # enum class in C++
+
+VALUE_TYPE = {
     "u16": ModbusValueType.U16,
     "s16": ModbusValueType.S16,
     "u32_be": ModbusValueType.U32_BE,
