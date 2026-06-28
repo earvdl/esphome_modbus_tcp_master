@@ -44,6 +44,14 @@ enum class ModbusValueType : uint8_t {
   S32_LE
 };
 
+// Backward-compatible aliases for codegen that still emits modbus_tcp::U16/S32_LE...
+static constexpr ModbusValueType U16 = ModbusValueType::U16;
+static constexpr ModbusValueType S16 = ModbusValueType::S16;
+static constexpr ModbusValueType U32_BE = ModbusValueType::U32_BE;
+static constexpr ModbusValueType S32_BE = ModbusValueType::S32_BE;
+static constexpr ModbusValueType U32_LE = ModbusValueType::U32_LE;
+static constexpr ModbusValueType S32_LE = ModbusValueType::S32_LE;
+
 struct ModbusResponse {
   bool success;
   std::vector<uint16_t> data;
