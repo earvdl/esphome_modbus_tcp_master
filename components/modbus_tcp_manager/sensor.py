@@ -4,14 +4,13 @@ from esphome.components import sensor
 from esphome.const import (
     CONF_ID,
     CONF_OFFSET,
-    CONF_REGISTER_ADDRESS,
     CONF_UPDATE_INTERVAL,
 )
 
 from . import modbus_tcp_ns, ModbusTCPManager
 
-# Local config keys for this component
 CONF_MODBUS_TCP_ID = "modbus_tcp_id"
+CONF_REGISTER_ADDRESS = "register_address"
 CONF_FUNCTION_CODE = "function_code"
 CONF_SCALE = "scale"
 CONF_VALUE_TYPE = "value_type"
@@ -51,7 +50,6 @@ CONFIG_SCHEMA = (
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_MODBUS_TCP_ID])
-
     var = cg.new_Pvariable(
         config[CONF_ID],
         parent,
@@ -59,10 +57,8 @@ async def to_code(config):
         config[CONF_FUNCTION_CODE],
         config[CONF_SCALE],
         config[CONF_OFFSET],
-        config[CONF_UPDATE_INTERVAL].total_milliseconds,  # uint32_t expected by C++
+        config[CONF_UPDATE_INTERVAL].total_milliseconds,
         config[CONF_VALUE_TYPE],
     )
-
     await sensor.register_sensor(var, config)
     await cg.register_component(var, config)
-
