@@ -1,7 +1,10 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor
-from esphome.const import CONF_ID, CONF_UPDATE_INTERVAL
+from esphome.const import (
+    CONF_ID,
+    CONF_UPDATE_INTERVAL,
+)
 
 from . import (
     modbus_tcp_ns,
@@ -9,19 +12,18 @@ from . import (
     CONF_MODBUS_TCP_ID,
     CONF_REGISTER_ADDRESS,
     CONF_FUNCTION_CODE,
+    CONF_SCALE,
+    CONF_OFFSET,
+    CONF_VALUE_TYPE,
 )
-
-CONF_SCALE = "scale"
-CONF_OFFSET = "offset"
-CONF_VALUE_TYPE = "value_type"
 
 ModbusTCPAdvancedSensor = modbus_tcp_ns.class_(
-    "ModbusTCPAdvancedSensor", cg.PollingComponent, sensor.Sensor
+    "ModbusTCPAdvancedSensor", sensor.Sensor, cg.PollingComponent
 )
 
-ModbusValueType = modbus_tcp_ns.enum("ModbusValueType")  # enum class in C++
+ModbusValueType = modbus_tcp_ns.enum("ModbusValueType")
 
-VALUE_TYPE = {
+VALUE_TYPE_MAP = {
     "u16": ModbusValueType.U16,
     "s16": ModbusValueType.S16,
     "u32_be": ModbusValueType.U32_BE,
@@ -30,16 +32,21 @@ VALUE_TYPE = {
     "s32_le": ModbusValueType.S32_LE,
 }
 
-CONFIG_SCHEMA = sensor.sensor_schema(ModbusTCPAdvancedSensor).extend(
-    {
-        cv.GenerateID(CONF_MODBUS_TCP_ID): cv.use_id(ModbusTCPManager),
-        cv.Required(CONF_REGISTER_ADDRESS): cv.int_range(min=0, max=0xFFFF),
-        cv.Optional(CONF_FUNCTION_CODE, default=4): cv.one_of(3, 4, int=True),
-        cv.Optional(CONF_SCALE, default=1.0): cv.float_,
-        cv.Optional(CONF_OFFSET, default=0.0): cv.float_,
-        cv.Optional(CONF_VALUE_TYPE, default="s16"): cv.enum(VALUE_TYPE_MAP, lower=True),
-    }
-).extend(cv.polling_component_schema("10s"))
+CONFIG_SCHEMA = (
+    sensor.sensor_schema(ModbusTCPAdvancedSensor)
+    .extend(
+        {
+            cv.GenerateID(CONF_MODBUS_TCP_ID): cv.use_id(ModbusTCPManager),
+            cv.Required(CONF_REGISTER_ADDRESS): cv.int_range(min=0, max=65535),
+            cv.Optional(CONF_FUNCTION_CODE, default=3): cv.int_range(min=3, max=4),
+            cv.Optional(CONF_SCALE, default=1.0): cv.float_,
+            cv.Optional(CONF_OFFSET, default=0.0): cv.float_,
+            cv.Optional(CONF_VALUE_TYPE, default="s16"): cv.enum(VALUE_TYPE_MAP, lower=True),
+            cv.Optional(CONF_UPDATE_INTERVAL, default="60s"): cv.update_interval,
+        }
+    )
+    .extend(cv.polling_component_schema("60s"))
+)
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_MODBUS_TCP_ID])
@@ -50,8 +57,8 @@ async def to_code(config):
         config[CONF_FUNCTION_CODE],
         config[CONF_SCALE],
         config[CONF_OFFSET],
-        config[CONF_UPDATE_INTERVAL].total_milliseconds,
+        config[CONF_UPDATE_INTERVAL].total_milliseconds,  # must be uint32_t
         config[CONF_VALUE_TYPE],
     )
-    await cg.register_component(var, config)
     await sensor.register_sensor(var, config)
+    await cg.register_component(var, config)
