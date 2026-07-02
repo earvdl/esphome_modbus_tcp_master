@@ -17,7 +17,7 @@ A robust external component for ESPHome that provides Modbus TCP client function
 ## Features
 
 - 🌐 **Modbus TCP Client** - Connect to any Modbus TCP server/device
-- 📊 **Multiple Data Types** - Read 16-bit signed/unsigned integers with scaling
+- 📊 **Multiple Data Types** - Reads 16-bit and 32-bit signed/unsigned integers with scaling. Supporte both Big endian (most significant 16-bit word firs) and little endian (lest significant word first) for 32-bit integers.
 - 🔄 **Read & Write Support** - Single register and multiple register operations
 - 🛡️ **Robust Error Handling** - ESP32 stays responsive even when Modbus device is offline
 - 📡 **Connection Monitoring** - Real-time connection status reporting
